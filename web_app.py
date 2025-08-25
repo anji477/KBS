@@ -33,6 +33,8 @@ if "uploaded_path" in st.session_state:
 
 	st.subheader("Search")
 	query = st.text_input("Enter your search query")
+	employee_filter = st.text_input("Filter by employee (optional)")
+	employee_id_filter = st.text_input("Filter by Employee ID (e.g., E018)")
 	use_ai = st.toggle("AI-enhanced search", value=True, help="Blend TF-IDF with fuzzy matching for better recall")
 	if st.button("Search") and query.strip():
 		try:
@@ -44,6 +46,21 @@ if "uploaded_path" in st.session_state:
 			save_index(file_path, idx)
 			st.info("Index was missing and has been built automatically.")
 		results = (search_hybrid(idx, query, top_k=5) if use_ai else search(idx, query, top_k=5))
+		if employee_filter.strip():
+			needle = employee_filter.strip().lower()
+			results = [
+				(score, doc)
+				for score, doc in results
+				if needle in (doc.get("title") or "").lower() or needle in (doc.get("content") or "").lower()
+			]
+		# Strict post-filter by Employee ID if provided (matches 'employee_id: E###' in content)
+		if employee_id_filter.strip():
+			needle_id = employee_id_filter.strip().lower()
+			results = [
+				(score, doc)
+				for score, doc in results
+				if f"employee_id: {needle_id}" in (doc.get("content") or "").lower()
+			]
 		add_recent_search(file_path, query)
 		if not results or all(score <= 1e-9 for score, _ in results):
 			st.warning("No results found. Suggestions: Check spelling, Try related terms")
