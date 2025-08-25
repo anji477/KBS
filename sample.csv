@@ -1,0 +1,21 @@
+title,date,employee,project,hours,tasks
+Timesheet | Alice Johnson | 2025-01-03,2025-01-03,Alice Johnson,Website Redesign,8,Wireframes and stakeholder review
+Timesheet | Bob Smith | 2025-01-04,2025-01-04,Bob Smith,Data Pipeline,7,ETL job fixes and monitoring
+Timesheet | Carol Lee | 2025-01-05,2025-01-05,Carol Lee,Mobile App,6,Push notification setup and testing
+Timesheet | David Kim | 2025-01-06,2025-01-06,David Kim,Analytics,8,Dashboard funnel metrics and QA
+Timesheet | Emma Davis | 2025-01-07,2025-01-07,Emma Davis,API,7,Rate limit middleware and docs
+Timesheet | Frank Miller | 2025-01-03,2025-01-03,Frank Miller,DevOps,8,CI workflow caching and images
+Timesheet | Grace Wilson | 2025-01-04,2025-01-04,Grace Wilson,CRM,6,Contact import mapping and dedupe
+Timesheet | Henry Clark | 2025-01-05,2025-01-05,Henry Clark,Security,8,2FA enrollment flow and logs
+Timesheet | Irene Patel | 2025-01-06,2025-01-06,Irene Patel,SSO,7,SAML metadata config and testing
+Timesheet | Jack Nguyen | 2025-01-07,2025-01-07,Jack Nguyen,Integrations,8,Slack app message actions
+Timesheet | Karen Lopez | 2025-01-03,2025-01-03,Karen Lopez,Docs,6,User guide updates and examples
+Timesheet | Liam Turner | 2025-01-04,2025-01-04,Liam Turner,Observability,8,API logs and traces filters
+Timesheet | Maya Chen | 2025-01-05,2025-01-05,Maya Chen,Billing,7,Invoice PDF layout tweaks
+Timesheet | Noah Brown | 2025-01-06,2025-01-06,Noah Brown,Search,8,TF-IDF tuning and tests
+Timesheet | Olivia Park | 2025-01-07,2025-01-07,Olivia Park,Notifications,6,Email templates and retry logic
+Timesheet | Peter Zhang | 2025-01-03,2025-01-03,Peter Zhang,Data Export,8,CSV export filters and timezone
+Timesheet | Quinn Rivera | 2025-01-04,2025-01-04,Quinn Rivera,Access Control,7,Role matrix and permission checks
+Timesheet | Ruby Singh | 2025-01-05,2025-01-05,Ruby Singh,Webhooks,8,Retry/backoff and signature docs
+Timesheet | Sam Walker | 2025-01-06,2025-01-06,Sam Walker,Migration,7,Mapping templates and validation
+Timesheet | Tina Gomez | 2025-01-07,2025-01-07,Tina Gomez,Support,6,FAQ curation and macro updates
