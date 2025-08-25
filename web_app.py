@@ -5,7 +5,7 @@ from typing import List, Dict, Any
 import streamlit as st
 
 from kbs import loaders
-from kbs.search import build_index, save_index, load_index, search, search_hybrid, search_smart, add_recent_search, get_recent_searches
+from kbs.search import build_index, save_index, load_index, search_smart, add_recent_search, get_recent_searches
 
 
 st.set_page_config(page_title="KB Search", page_icon="🔎", layout="centered")
@@ -32,11 +32,7 @@ if "uploaded_path" in st.session_state:
 		st.success("Index built and cached.")
 
 	st.subheader("Search")
-	query = st.text_input("Enter your search query")
-	employee_filter = st.text_input("Filter by employee (optional)")
-	employee_id_filter = st.text_input("Filter by Employee ID (e.g., E018)")
-	use_ai = st.toggle("AI-enhanced search", value=True, help="Blend TF-IDF with fuzzy matching for better recall")
-	use_smart = st.toggle("Smart filters from query (key:value, >=, <=)", value=True)
+	query = st.text_input("Search")
 	if st.button("Search") and query.strip():
 		try:
 			idx = load_index(file_path)
@@ -46,25 +42,8 @@ if "uploaded_path" in st.session_state:
 			idx = build_index(docs)
 			save_index(file_path, idx)
 			st.info("Index was missing and has been built automatically.")
-		if use_smart:
-			results = search_smart(idx, query, top_k=5)
-		else:
-			results = (search_hybrid(idx, query, top_k=5) if use_ai else search(idx, query, top_k=5))
-		if employee_filter.strip():
-			needle = employee_filter.strip().lower()
-			results = [
-				(score, doc)
-				for score, doc in results
-				if needle in (doc.get("title") or "").lower() or needle in (doc.get("content") or "").lower()
-			]
-		# Strict post-filter by Employee ID if provided (matches 'employee_id: E###' in content)
-		if employee_id_filter.strip():
-			needle_id = employee_id_filter.strip().lower()
-			results = [
-				(score, doc)
-				for score, doc in results
-				if f"employee_id: {needle_id}" in (doc.get("content") or "").lower()
-			]
+		# Always use smart search (supports key:value and numeric filters)
+		results = search_smart(idx, query, top_k=5)
 		add_recent_search(file_path, query)
 		if not results or all(score <= 1e-9 for score, _ in results):
 			st.warning("No results found. Suggestions: Check spelling, Try related terms")
