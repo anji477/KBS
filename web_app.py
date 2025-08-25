@@ -5,7 +5,7 @@ from typing import List, Dict, Any
 import streamlit as st
 
 from kbs import loaders
-from kbs.search import build_index, save_index, load_index, search, add_recent_search, get_recent_searches
+from kbs.search import build_index, save_index, load_index, search, search_hybrid, add_recent_search, get_recent_searches
 
 
 st.set_page_config(page_title="KB Search", page_icon="🔎", layout="centered")
@@ -33,6 +33,7 @@ if "uploaded_path" in st.session_state:
 
 	st.subheader("Search")
 	query = st.text_input("Enter your search query")
+	use_ai = st.toggle("AI-enhanced search", value=True, help="Blend TF-IDF with fuzzy matching for better recall")
 	if st.button("Search") and query.strip():
 		try:
 			idx = load_index(file_path)
@@ -42,7 +43,7 @@ if "uploaded_path" in st.session_state:
 			idx = build_index(docs)
 			save_index(file_path, idx)
 			st.info("Index was missing and has been built automatically.")
-		results = search(idx, query, top_k=5)
+		results = (search_hybrid(idx, query, top_k=5) if use_ai else search(idx, query, top_k=5))
 		add_recent_search(file_path, query)
 		if not results or all(score <= 1e-9 for score, _ in results):
 			st.warning("No results found. Suggestions: Check spelling, Try related terms")

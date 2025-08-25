@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Tuple
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import linear_kernel
+from rapidfuzz import fuzz
 
 
 @dataclass
@@ -92,6 +93,60 @@ def search(index: KBIndex, query: str, top_k: int = 5) -> List[Tuple[float, Dict
 	results: List[Tuple[float, Dict[str, Any]]] = []
 	for i in ranked_indices:
 		results.append((float(scores[i]), index.documents[int(i)]))
+	return results
+
+
+def _normalize(values: List[float]) -> List[float]:
+	if not values:
+		return values
+	v_min = min(values)
+	v_max = max(values)
+	if v_max == v_min:
+		return [0.0 for _ in values]
+	return [(v - v_min) / (v_max - v_min) for v in values]
+
+
+def search_hybrid(index: KBIndex, query: str, top_k: int = 5, tfidf_weight: float = 0.7) -> List[Tuple[float, Dict[str, Any]]]:
+	"""Hybrid search: TF-IDF cosine + fuzzy string match on title/content.
+
+	- Computes TF-IDF cosine similarity for all docs
+	- Computes RapidFuzz token_set_ratio against title and content (max of both)
+	- Normalizes both to [0,1] and blends with tfidf_weight
+	"""
+	if not query.strip():
+		return []
+
+	# TF-IDF scores
+	q_vec = index.vectorizer.transform([query])
+	tfidf_scores_list = linear_kernel(q_vec, index.matrix).flatten().tolist()
+
+	# Fuzzy scores (0..100) -> normalize to 0..1 later
+	fuzzy_raw: List[float] = []
+	for doc in index.documents:
+		title = (doc.get("title") or "").strip()
+		content = (doc.get("content") or "").strip()
+		# Prefer title match if present
+		score_title = fuzz.token_set_ratio(query, title) if title else 0
+		# Use a cheaper partial ratio on content to avoid heavy cost
+		score_content = fuzz.partial_ratio(query, content[:1000]) if content else 0
+		fuzzy_raw.append(float(max(score_title, score_content)))
+
+	# Normalize both vectors to [0,1]
+	tfidf_norm = _normalize(tfidf_scores_list)
+	fuzzy_norm = _normalize([v / 100.0 for v in fuzzy_raw])
+
+	# Blend
+	alpha = max(0.0, min(1.0, tfidf_weight))
+	blended: List[float] = [
+		(alpha * t) + ((1.0 - alpha) * f)
+		for t, f in zip(tfidf_norm, fuzzy_norm)
+	]
+
+	# Rank and return
+	ranked_indices = sorted(range(len(blended)), key=lambda i: blended[i], reverse=True)[:top_k]
+	results: List[Tuple[float, Dict[str, Any]]] = []
+	for i in ranked_indices:
+		results.append((float(blended[i]), index.documents[int(i)]))
 	return results
 
 
