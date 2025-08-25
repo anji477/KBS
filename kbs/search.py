@@ -7,6 +7,7 @@ from typing import List, Dict, Any, Tuple
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import linear_kernel
 from rapidfuzz import fuzz
+import re
 
 
 @dataclass
@@ -147,6 +148,152 @@ def search_hybrid(index: KBIndex, query: str, top_k: int = 5, tfidf_weight: floa
 	results: List[Tuple[float, Dict[str, Any]]] = []
 	for i in ranked_indices:
 		results.append((float(blended[i]), index.documents[int(i)]))
+	return results
+
+
+# ---- Smart query parsing and filtered ranking ----
+_FIELD_ALIASES = {
+	"employee_id": ["employee_id", "id", "emp_id"],
+	"name": ["name", "employee", "employee_name"],
+	"department": ["department", "dept"],
+	"role": ["role", "title", "position"],
+	"last_leave_date": ["last_leave_date", "last_leave", "leave_date"],
+	"leave_balance_days": ["leave_balance_days", "leave_balance", "balance"],
+	"total_leaves_available_days": ["total_leaves_available_days", "leaves_available", "available"],
+	"total_leaves_taken_days": ["total_leaves_taken_days", "leaves_taken", "taken"],
+}
+
+
+def _match_field_name(token_key: str) -> str:
+	key = token_key.strip().lower()
+	for canon, aliases in _FIELD_ALIASES.items():
+		if key == canon or key in aliases:
+			return canon
+	return key
+
+
+_FIELD_REGEX_CACHE: Dict[str, re.Pattern] = {}
+
+
+def _extract_field_from_content(doc: Dict[str, Any], field: str) -> str:
+	"""Extract a field value from the doc content lines like 'field: value'."""
+	pattern = _FIELD_REGEX_CACHE.get(field)
+	if pattern is None:
+		pattern = re.compile(rf"^\s*{re.escape(field)}\s*:\s*(.*)$", re.IGNORECASE | re.MULTILINE)
+		_FIELD_REGEX_CACHE[field] = pattern
+	content = (doc.get("content") or "")
+	m = pattern.search(content)
+	return (m.group(1).strip() if m else "")
+
+
+def _doc_matches_filters(doc: Dict[str, Any], filters: List[Tuple[str, str, str]]) -> bool:
+	"""filters: list of (field, op, value); op in {eq, contains, >, >=, <, <=}"""
+	for field, op, value in filters:
+		field_l = field.lower()
+		if field_l == "name":
+			doc_val = (doc.get("title") or "").strip()
+		else:
+			doc_val = _extract_field_from_content(doc, field)
+		if op in ("eq", "contains"):
+			needle = value.lower()
+			if op == "eq":
+				if doc_val.lower() != needle:
+					return False
+			else:
+				if needle not in doc_val.lower():
+					return False
+		else:
+			# numeric comparison if possible
+			try:
+				doc_num = float(re.findall(r"[-+]?[0-9]*\.?[0-9]+", doc_val)[0]) if doc_val else float("nan")
+				val_num = float(value)
+			except Exception:
+				return False
+			if op == ">" and not (doc_num > val_num):
+				return False
+			if op == ">=" and not (doc_num >= val_num):
+				return False
+			if op == "<" and not (doc_num < val_num):
+				return False
+			if op == "<=" and not (doc_num <= val_num):
+				return False
+	return True
+
+
+def _parse_smart_query(query: str) -> Tuple[str, List[Tuple[str, str, str]]]:
+	"""Return (free_text, filters). Supports tokens like:
+	- employee_id:E018 (eq)
+	- department:Platform (contains)
+	- role:"API Engineer" (contains with quotes)
+	- leave_balance_days>=10 (numeric comparisons)
+	Other text becomes free_text.
+	"""
+	filters: List[Tuple[str, str, str]] = []
+	free_parts: List[str] = []
+	# token patterns
+	pattern = re.compile(r"(\w+)(:|>=|<=|>|<)(\S+|\"[^\"]+\")")
+	used_spans: List[Tuple[int, int]] = []
+	for m in pattern.finditer(query):
+		key_raw, op_raw, val_raw = m.group(1), m.group(2), m.group(3)
+		field = _match_field_name(key_raw)
+		value = val_raw.strip().strip('"')
+		if op_raw == ":":
+			# contains by default; if value is quoted and exact match requested by user, they can type name:"Alice Johnson"
+			op = "contains"
+		elif op_raw in (">=", "<=", ">", "<"):
+			op = op_raw
+		else:
+			op = "contains"
+		filters.append((field, op, value))
+		used_spans.append(m.span())
+	# collect remaining text as free text
+	last = 0
+	for start, end in used_spans:
+		if last < start:
+			free_parts.append(query[last:start].strip())
+		last = end
+	if last < len(query):
+		free_parts.append(query[last:].strip())
+	free_text = " ".join([p for p in free_parts if p])
+	return free_text, filters
+
+
+def search_smart(index: KBIndex, query: str, top_k: int = 5, tfidf_weight: float = 0.7) -> List[Tuple[float, Dict[str, Any]]]:
+	free_text, filters = _parse_smart_query(query)
+	base_query = free_text if free_text else query
+	# compute hybrid scores against entire corpus
+	q_vec = index.vectorizer.transform([base_query])
+	tfidf_scores_list = linear_kernel(q_vec, index.matrix).flatten().tolist()
+	# fuzzy
+	fuzzy_raw: List[float] = []
+	for doc in index.documents:
+		title = (doc.get("title") or "").strip()
+		content = (doc.get("content") or "").strip()
+		score_title = fuzz.token_set_ratio(base_query, title) if title else 0
+		score_content = fuzz.partial_ratio(base_query, content[:1000]) if content else 0
+		fuzzy_raw.append(float(max(score_title, score_content)))
+	# normalize and blend
+	tfidf_norm = _normalize(tfidf_scores_list)
+	fuzzy_norm = _normalize([v / 100.0 for v in fuzzy_raw])
+	alpha = max(0.0, min(1.0, tfidf_weight))
+	blended: List[float] = [
+		(alpha * t) + ((1.0 - alpha) * f)
+		for t, f in zip(tfidf_norm, fuzzy_norm)
+	]
+	# apply strict filters mask
+	masked_scores: List[float] = []
+	for score, doc in zip(blended, index.documents):
+		if filters and not _doc_matches_filters(doc, filters):
+			masked_scores.append(float("-inf"))
+		else:
+			masked_scores.append(score)
+	# rank
+	ranked_indices = sorted(range(len(masked_scores)), key=lambda i: masked_scores[i], reverse=True)[:top_k]
+	results: List[Tuple[float, Dict[str, Any]]] = []
+	for i in ranked_indices:
+		if masked_scores[i] == float("-inf"):
+			continue
+		results.append((float(masked_scores[i]), index.documents[int(i)]))
 	return results
 
 
